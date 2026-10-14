@@ -606,6 +606,7 @@ class Jendela:
         i = self._indeks(self._nilai("no"))
         pa, pl, ms_a, ms_l, geser, telusur = self._adu(
             lambda: self.array.remove(i), lambda: self.link.remove(i))
+        self.urut_oid = None   # data berubah, daftar terurut oid tidak berlaku lagi
         if pa is None or pl is None or pa.oid != pl.oid:
             raise ValueError("struktur tidak sinkron saat hapus indeks " + str(i))
         self._tulis_hasil(pa.oid + " dicabut dari antrean", "HAPUS no " + str(i + 1))
@@ -922,17 +923,28 @@ class Jendela:
         target = self._nilai("target").strip()
         if not target:
             raise ValueError("target kosong")
-        data = self._data_laporan()
+        if self.urut_oid is None:
+            data = self._data_laporan()
+            t0 = time.perf_counter()
+            self.urut_oid, banding_sort, pindah_sort = merge_sort(
+                data, lambda pesanan: pesanan.oid)
+            ms_sort = (time.perf_counter() - t0) * 1000.0
+            baris_urut = [
+                "membangun daftar terurut oid (sekali saja):",
+                "  {0} perbandingan, {1} pemindahan, {2} ms".format(
+                    angka(banding_sort), angka(pindah_sort), angka(ms_sort, 2)),
+            ]
+        else:
+            ms_sort = 0.0
+            baris_urut = [
+                "membangun daftar terurut oid:",
+                "  dipakai ulang dari pencarian sebelumnya (0 ms)",
+            ]
         t0 = time.perf_counter()
-        terurut, banding_sort, pindah_sort = merge_sort(data, lambda pesanan: pesanan.oid)
-        ms_sort = (time.perf_counter() - t0) * 1000.0
-        t0 = time.perf_counter()
-        indeks, banding = binary_search(terurut, target, lambda pesanan: pesanan.oid)
+        indeks, banding = binary_search(
+            self.urut_oid, target, lambda pesanan: pesanan.oid)
         ms_cari = (time.perf_counter() - t0) * 1000.0
-        baris = [
-            "membangun daftar terurut oid:",
-            "  {0} perbandingan, {1} pemindahan, {2} ms".format(
-                angka(banding_sort), angka(pindah_sort), angka(ms_sort, 2)),
+        baris = baris_urut + [
             "",
             "pencarian biner:",
             "  {0} perbandingan, {1} ms".format(angka(banding), angka(ms_cari, 2)),
@@ -943,7 +955,7 @@ class Jendela:
         else:
             baris.append("ditemukan di indeks {0} (baris ke-{1})".format(
                 angka(indeks), angka(indeks + 1)))
-            baris.append("  " + terurut[indeks].ringkas())
+            baris.append("  " + self.urut_oid[indeks].ringkas())
         self._tulis_hasil("\n".join(baris), "SEARCH - BINARY SEARCH")
         self.label_link.configure(text="  Binary search  {0} banding, {1} ms".format(
             angka(banding), angka(ms_cari, 2)))
