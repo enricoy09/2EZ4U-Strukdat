@@ -6,7 +6,6 @@
 
 import sys
 import tkinter as tk
-
 from frontend import ui
 
 

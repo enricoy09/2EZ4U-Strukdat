@@ -1,45 +1,33 @@
-"""Antarmuka Tkinter M1 & M2 - Array/LinkList, lalu Tumpukan/Antrean.
+"""Antarmuka 2EZ4U - satu jendela Tkinter untuk M1, M2, dan M3.
 
-Tiga bagian seperti di dokumen: daftar menu di kiri, form parameter dan hasil
-di kanan, panel COMMAND di bawah. Setiap aksi mengubah struktur pembanding
-sekaligus supaya datanya tetap sama, lalu waktu tiap struktur diperlihatkan
-agar bisa diadu.
+Berkas ini memakai struktur data di backend: di sini objek Array, LinkedList,
+Stack, dan kedua antrean dibuat, diisi dari CSV, lalu dijalankan. Algoritma
+pengurutan dan pencarian M3 juga dipanggil dari sini. Struktur dan algoritmanya
+sendiri tetap di backend/m1_pesanan.py, m2_antrean.py, dan m3_laporan.py.
 
-Backend (backend/m1_pesanan.py, backend/m2_antrean.py) hanya berisi kelas
-struktur datanya; model pesanan, pembacaan CSV, alur kasir postfix, undo/redo,
-dan penyelaras struktur ada di file ini.
+Tata letak: daftar menu di kiri, form parameter dan hasil di kanan, panel
+COMMAND di bawah. Setiap aksi mengerjakan hal yang sama pada struktur
+pembanding (Array vs LinkList, antrean naif vs melingkar) supaya waktunya bisa
+diadu langsung.
 """
 
 import csv
 import os
-import sys
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from backend.m1_pesanan import Array, LinkList
-from backend.m2_antrean import Tumpukan, AntreanNaif, AntreanMelingkar
+from backend.m1_pesanan import Array, LinkedList
+from backend.m2_antrean import Stack, NaiveQueue, CircularQueue
+from backend.m3_laporan import (
+    insertion_sort, merge_sort, linear_search, binary_search)
 
-JUDUL = "2EZ4U - Struktur Data (M1 & M2)"
-BARIS_PER_LAPOR = 50000
+JUDUL = "2EZ4U - Struktur Data (M1, M2 & M3)"
+
+BATAS_INSERTION = 5000
 
 AKAR_PROYEK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV_BAWAAN = os.path.join(AKAR_PROYEK, "data", "pesanan.csv")
-
-URUTAN_KOLOM = ("oid", "pelanggan", "resto", "menu", "harga",
-                "prioritas", "t_masuk", "t_selesai", "status")
-
-ALIAS_KOLOM = (
-    ("oid", ("oid", "id", "order_id", "order", "no_pesanan")),
-    ("pelanggan", ("pelanggan", "customer", "nama_pelanggan", "pemesan")),
-    ("resto", ("resto", "restoran", "restaurant", "merchant", "toko")),
-    ("menu", ("menu", "item", "produk", "makanan")),
-    ("harga", ("harga", "price", "harga_menu")),
-    ("prioritas", ("prioritas", "priority", "kelas")),
-    ("t_masuk", ("t_masuk", "t_masuk_detik", "waktu_masuk", "t_masuk_sek")),
-    ("t_selesai", ("t_selesai", "t_selesai_detik", "waktu_selesai", "t_selesai_sek")),
-    ("status", ("status", "keadaan", "state")),
-)
 
 MENU = (
     ("ARRAY", (
@@ -73,8 +61,7 @@ MENU = (
     )),
     ("STACK", (
         ("S_POST", "STACK - POSTFIX (MESIN KASIR)", "postfix", "stack", "ekspresi",
-         "Ubah struk infix menjadi postfix lalu hitung totalnya, memakai stack "
-         "operator dan stack angka; tiap langkah ditampilkan."),
+         "Ubah struk infix menjadi postfix lalu hitung totalnya memakai Stack."),
         ("S_UNDO", "STACK - UNDO LAST", "undo", "stack", "",
          "Batalkan aksi antrean terakhir memakai tumpukan undo."),
         ("S_REDO", "STACK - REDO LAST", "redo", "stack", "",
@@ -88,13 +75,27 @@ MENU = (
         ("Q_DQC", "QUEUE - DEQUEUE CIRCULAR", "dequeue_circular", "queue", "jumlah",
          "Keluarkan n pesanan dari depan; versi melingkar hanya memajukan front."),
     )),
+    ("SORT", (
+        ("S3_INS", "SORT - INSERTION SORT", "sort_insertion", "array", "sort_kecil",
+         "Urutkan data kecil dengan insertion sort. Stabil. O(n^2); menolak "
+         "data lebih dari 5.000 baris supaya tidak membeku."),
+        ("S3_MRG", "SORT - MERGE SORT", "sort_merge", "link", "sort_besar",
+         "Urutkan data besar dengan merge sort. Stabil. O(n log n)."),
+    )),
+    ("SEARCH", (
+        ("S4_LIN", "SEARCH - LINEAR SEARCH", "search_linear", "array", "cari",
+         "Cari oid dengan menelusuri satu per satu. O(n); tidak butuh data terurut."),
+        ("S4_BIN", "SEARCH - BINARY SEARCH", "search_binary", "link", "cari",
+         "Cari oid pada daftar terurut. O(log n); daftar oid diurutkan dulu "
+         "sekali dengan merge sort, ongkosnya ikut dilaporkan."),
+    )),
     ("SISTEM", (
         ("S_MUAT", "MUAT ULANG DATA", "muat", "", "",
          "Baca ulang data/pesanan.csv ke semua struktur M1 dan M2."),
         ("S_CEK", "CEK KONSISTENSI", "cek", "", "",
          "Pastikan Array dan LinkList memuat urutan pesanan yang sama."),
         ("S_STAT", "STATISTIK STRUKTUR", "stat", "", "",
-         "Panjang, kapasitas, perluasan, geseran, dan simpul yang ditelusuri."),
+         "Panjang, kapasitas, geseran, dan simpul yang ditelusuri."),
         ("S_STAT2", "STATISTIK ANTREAN (M2)", "stat2", "", "",
          "Panjang kedua antrean, kapasitas, total geseran, kedalaman undo/redo."),
         ("S_CUPLIK", "CUPLIKAN 200 PESANAN", "cuplik", "", "",
@@ -103,108 +104,10 @@ MENU = (
 )
 
 
-class GalatIndeks(IndexError):
-    """Indeks di luar jangkauan atau nomor pesanan tidak ada."""
-
-
-class GalatData(ValueError):
-    """Berkas CSV tidak bisa dibaca atau isinya tidak lengkap."""
-
-
-def format_angka(nilai, desimal=0):
-    """1234567 -> '1.234.567'; 0,0234 -> '0,02' (gaya Indonesia)."""
-    teks = "{0:.{1}f}".format(float(nilai), desimal)
-    bulat, _, pecahan = teks.partition(".")
-    potongan = []
-    while len(bulat) > 3:
-        potongan.insert(0, bulat[-3:])
-        bulat = bulat[:-3]
-    potongan.insert(0, bulat)
-    hasil = ".".join(potongan)
-    if pecahan:
-        hasil = hasil + "," + pecahan
-    return hasil
-
-
-def rupiah(nilai):
-    return "Rp " + format_angka(nilai)
-
-
-def _prio(op):
-    """Prioritas operator: * dan / lebih kuat daripada + dan -."""
-    if op == "*" or op == "/":
-        return 2
-    if op == "+" or op == "-":
-        return 1
-    return 0
-
-
-def _token(teks):
-    """Pecah struk kasir jadi token; angka berdigit banyak tetap satu token."""
-    token = []
-    i = 0
-    n = len(teks)
-    while i < n:
-        c = teks[i]
-        if c.isspace():
-            i += 1
-        elif c.isdigit() or c == ".":
-            mulai = i
-            titik = 0
-            while i < n and (teks[i].isdigit() or teks[i] == "."):
-                if teks[i] == ".":
-                    titik += 1
-                i += 1
-            if titik > 1:
-                raise GalatData("angka tidak sah: " + teks[mulai:i])
-            token.append(teks[mulai:i])
-        elif c in ("+", "-", "*", "/", "(", ")"):
-            token.append(c)
-            i += 1
-        else:
-            raise GalatData("token tidak dikenal: " + c)
-    return token
-
-
-def _nilai_token(t):
-    try:
-        return int(t)
-    except ValueError:
-        pass
-    try:
-        return float(t)
-    except ValueError:
-        raise GalatData("angka tidak sah: " + t)
-
-
-def _bulat(x):
-    return abs(float(x) - round(float(x))) < 1e-9
-
-
-def _teks_angka(x):
-    if _bulat(x):
-        return format_angka(x, 0)
-    return format_angka(x, 2)
-
-
-def _isi_tumpukan(t):
-    return t.larik.data[:t.larik.size]
-
-
-def _teks_isi(t):
-    potong = []
-    i = 0
-    while i < t.larik.size:
-        potong.append(_teks_angka(t.larik.data[i]))
-        i += 1
-    return potong
-
+# ------------------------------------------------------------- model
 
 class Pesanan:
     """Satu baris pesanan, sembilan kolom seperti di CSV."""
-
-    __slots__ = ("oid", "pelanggan", "resto", "menu", "harga",
-                 "prioritas", "t_masuk", "t_selesai", "status")
 
     def __init__(self, oid, pelanggan, resto, menu, harga, prioritas,
                  t_masuk, t_selesai, status):
@@ -218,7 +121,6 @@ class Pesanan:
         self.t_selesai = t_selesai
         self.status = status
 
-    @property
     def jenis(self):
         if self.prioritas == 1:
             return "VIP"
@@ -229,7 +131,7 @@ class Pesanan:
     def ringkas(self):
         return "{0} | {1:<14} | {2:<13} | {3:<18} | {4:>10} | {5:<9} | {6}".format(
             self.oid, self.pelanggan[:14], self.resto[:13], self.menu[:18],
-            format_angka(self.harga), self.jenis, self.status)
+            rupiah(self.harga), self.jenis(), self.status)
 
     def detail(self):
         selesai = "-" if self.t_selesai is None else str(self.t_selesai) + " dtk"
@@ -244,608 +146,131 @@ class Pesanan:
             "t selesai : {8}\n"
             "status    : {9}"
         ).format(self.oid, self.pelanggan, self.resto, self.menu,
-                 rupiah(self.harga), self.prioritas, self.jenis,
+                 rupiah(self.harga), self.prioritas, self.jenis(),
                  self.t_masuk, selesai, self.status)
 
 
-class Catatan:
-    """Hasil satu operasi: apa yang terjadi dan berapa ongkosnya di tiap struktur."""
+# ---------------------------------------------------------- utilitas
 
-    __slots__ = ("aksi", "pesan", "nilai", "indeks",
-                 "ms_array", "ms_link", "geseran", "langkah")
-
-    def __init__(self, aksi, pesan, nilai=None, indeks=-1,
-                 ms_array=0.0, ms_link=0.0, geseran=0, langkah=0):
-        self.aksi = aksi
-        self.pesan = pesan
-        self.nilai = nilai
-        self.indeks = indeks
-        self.ms_array = ms_array
-        self.ms_link = ms_link
-        self.geseran = geseran
-        self.langkah = langkah
+def angka(nilai, desimal=0):
+    """1234567 -> '1.234.567'; 0,0234 -> '0,02' (gaya Indonesia)."""
+    teks = "{0:,.{1}f}".format(float(nilai), desimal)
+    return teks.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-class HasilM2:
-    """Hasil satu operasi M2 (postfix / queue / undo-redo)."""
-
-    __slots__ = ("aksi", "teks", "adu", "log")
-
-    def __init__(self, aksi, teks, adu=None, log=None):
-        self.aksi = aksi
-        self.teks = teks
-        self.adu = adu
-        self.log = log if log is not None else []
+def rupiah(nilai):
+    return "Rp " + angka(nilai)
 
 
-class AntreanPesanan:
-    """Satu antrean, dua struktur: Array dan LinkList selalu dijaga identik.
-
-    Antarmuka di sini 1-based (dipakai jendela Tkinter), Array/LinkList 0-based.
-    """
-
-    def __init__(self, path=None):
-        self.array = Array()
-        self.link = LinkList()
-        self.path = path
-        self.jumlah_muat = 0
-        self.nomor_baru = 0
-
-    def panjang(self):
-        return self.array.size
-
-    def muat_csv(self, path=None, lapor=BARIS_PER_LAPOR):
-        if path is None:
-            path = self.path
-        if path is None:
-            raise GalatData("path CSV belum diberikan")
-        self.path = path
-        awal = time.perf_counter()
-        jumlah = 0
-        with open(path, "r", newline="", encoding="utf-8-sig") as f:
-            self.array = Array()
-            self.link = LinkList()
-            probe = f.readline()
-            f.seek(0)
-            bacaan = csv.reader(f, delimiter=_pemisah(probe))
-            try:
-                baris_pertama = next(bacaan)
-            except StopIteration:
-                raise GalatData("CSV kosong: {0}".format(path))
-            if _mungkin_header(baris_pertama):
-                peta = _petakan_kolom(baris_pertama)
-            else:
-                peta = _petakan_urutan()
-                if _baris_isi(baris_pertama):
-                    self._satu_baris(baris_pertama, peta)
-                    jumlah += 1
-            for baris in bacaan:
-                if not _baris_isi(baris):
-                    continue
-                self._satu_baris(baris, peta)
-                jumlah += 1
-                if lapor and jumlah % lapor == 0:
-                    print("  ... {0} baris termuat".format(format_angka(jumlah)))
-        ms = (time.perf_counter() - awal) * 1000.0
-        self.jumlah_muat = jumlah
-        return jumlah, ms
-
-    def oid_baru(self):
-        self.nomor_baru += 1
-        return "O-{0:06d}".format(self.jumlah_muat + self.nomor_baru)
-
-    def lihat(self, no):
-        i = self._ke_indeks(no)
-        a, b, ms_array, ms_link, geseran, langkah = self._adu(
-            lambda: self.array.get(i), lambda: self.link.get(i))
-        if a is None or b is None or a.oid != b.oid:
-            raise GalatData("struktur tidak sinkron di indeks {0}".format(i))
-        return Catatan("LIHAT no " + str(no), "1 pesanan dibuka", a, i,
-                       ms_array, ms_link, geseran, langkah)
-
-    def tambah_reguler(self, pesanan):
-        return self._tambah(pesanan, "TAMBAH REGULER", "reguler")
-
-    def tambah_prioritas(self, pesanan):
-        return self._tambah(pesanan, "TAMBAH PRIORITAS", "prioritas")
-
-    def tambah_vip(self, pesanan):
-        return self._tambah(pesanan, "TAMBAH VIP", "vip")
-
-    def hapus(self, no):
-        i = self._ke_indeks(no)
-        a, b, ms_array, ms_link, geseran, langkah = self._adu(
-            lambda: self.array.hapus(i), lambda: self.link.hapus(i))
-        if a is None or b is None or a.oid != b.oid:
-            raise GalatData("struktur tidak sinkron saat hapus indeks {0}".format(i))
-        return Catatan("HAPUS no " + str(no), a.oid + " dicabut dari antrean",
-                       a, i, ms_array, ms_link, geseran, langkah)
-
-    def potongan(self, mulai=0, jumlah=10):
-        n = self.array.size
-        if mulai < 0 or mulai > n:
-            raise GalatIndeks("mulai {0} di luar jangkauan 0..{1}".format(mulai, n))
-        keluar = []
-        i = mulai
-        while i < n and len(keluar) < jumlah:
-            keluar.append(self.array.get(i))
-            i += 1
-        return keluar
-
-    def verifikasi(self):
-        if self.array.size != self.link.size:
-            return False, "panjang berbeda: {0} vs {1}".format(
-                self.array.size, self.link.size)
-        s = self.link.head
-        for i in range(self.array.size):
-            a = self.array.get(i)
-            if a is not s.data:
-                return False, "indeks {0} berbeda".format(i)
-            s = s.next
-        return True, "identik pada {0} posisi".format(self.array.size)
-
-    def stat(self):
-        isi = [("jumlah pesanan", self.array.size)]
-        for nama, nilai in self.array.stat():
-            isi.append(("array. " + nama, nilai))
-        for nama, nilai in self.link.stat():
-            isi.append(("linklist. " + nama, nilai))
-        return isi
-
-    def _adu(self, kerja_array, kerja_link):
-        geser0, langkah0 = self.array.geseran, self.link.langkah
-        t0 = time.perf_counter()
-        nilai_array = kerja_array()
-        ms_array = (time.perf_counter() - t0) * 1000.0
-        t0 = time.perf_counter()
-        nilai_link = kerja_link()
-        ms_link = (time.perf_counter() - t0) * 1000.0
-        return (nilai_array, nilai_link, ms_array, ms_link,
-                self.array.geseran - geser0, self.link.langkah - langkah0)
-
-    def _tambah(self, pesanan, aksi, jenis):
-        if jenis == "reguler":
-            hasil = self._adu(lambda: self.array.tambah_reguler(pesanan),
-                              lambda: self.link.tambah_reguler(pesanan))
-        elif jenis == "vip":
-            hasil = self._adu(lambda: self.array.tambah_vip(pesanan),
-                              lambda: self.link.tambah_vip(pesanan))
-        else:
-            hasil = self._adu(lambda: self.array.tambah_prioritas(pesanan),
-                              lambda: self.link.tambah_prioritas(pesanan))
-        posisi, posisi_link, ms_array, ms_link, geseran, langkah = hasil
-        if posisi != posisi_link:
-            raise GalatData("kedua struktur memakai posisi berbeda")
-        if posisi == 0:
-            pesan = pesanan.oid + " masuk di urutan pertama"
-        else:
-            pesan = pesanan.oid + " masuk di posisi ke-" + str(posisi + 1)
-        return Catatan(aksi, pesan, pesanan, posisi,
-                       ms_array, ms_link, geseran, langkah)
-
-    def _ke_indeks(self, no):
-        n = self.array.size
-        if n == 0:
-            raise GalatIndeks("antrean masih kosong")
-        try:
-            nomor = int(str(no).strip())
-        except ValueError:
-            raise GalatIndeks("nomor pesanan bukan angka: {0}".format(no))
-        if nomor < 1 or nomor > n:
-            raise GalatIndeks("nomor {0} di luar jangkauan 1..{1}".format(nomor, n))
-        return nomor - 1
-
-    def _satu_baris(self, baris, peta):
-        oid = _ambil(baris, peta[0])
-        if not oid:
-            return
-        pesanan = Pesanan(
-            oid,
-            _ambil(baris, peta[1]),
-            _ambil(baris, peta[2]),
-            _ambil(baris, peta[3]),
-            _angka(_ambil(baris, peta[4]), 0),
-            _angka(_ambil(baris, peta[5]), 3),
-            _angka(_ambil(baris, peta[6]), 0),
-            _angka(_ambil(baris, peta[7]), None),
-            _ambil(baris, peta[8]) or "ANTRE",
-        )
-        self.array.tambah_reguler(pesanan)
-        self.link.tambah_reguler(pesanan)
-
-
-class MesinAntrean:
-    """Mesin M2: kasir postfix, antrean naif + melingkar (selalu sinkron), undo/redo.
-
-    Kedua antrean selalu memuat pesanan yang sama persis. Satu aksi dequeue
-    mengeluarkan dari keduanya sekaligus; yang dilaporkan hanya ongkos versi yang
-    dipilih, supaya perbandingannya jujur.
-    """
-
-    def __init__(self, kapasitas_awal=4):
-        self.kapasitas_awal = kapasitas_awal
-        self.naif = AntreanNaif()
-        self.melingkar = AntreanMelingkar(kapasitas_awal)
-        self.undo = Tumpukan()
-        self.redo = Tumpukan()
-        self.riwayat = []
-        self.jumlah_muat = 0
-        self.jumlah_baris = 0
-        self.nomor_baru = 0
-
-    # -------------------------------------------------- pemuatan
-    def muat_dari(self, sesi):
-        """Isi kedua antrean dengan pesanan berstatus ANTRE dari sesi M1."""
-        self.naif = AntreanNaif()
-        self.melingkar = AntreanMelingkar(self.kapasitas_awal)
-        self.undo = Tumpukan()
-        self.redo = Tumpukan()
-        self.riwayat = []
-        self.jumlah_muat = 0
-        self.nomor_baru = 0
-        self.jumlah_baris = sesi.jumlah_muat
-        i = 0
-        while i < sesi.array.size:
-            p = sesi.array.get(i)
-            if p is not None and p.status == "ANTRE":
-                self.naif.enqueue(p)
-                self.melingkar.enqueue(p)
-                self.jumlah_muat += 1
-            i += 1
-        return self.jumlah_muat
-
-    def panjang(self):
-        return self.naif.size()
-
-    def oid_baru(self):
-        self.nomor_baru += 1
-        return "O-{0:06d}".format(self.jumlah_baris + self.nomor_baru)
-
-    # -------------------------------------------------- kasir: postfix + hitung
-    def mesin_kasir(self, teks):
-        token = _token(teks)
-        if not token:
-            raise GalatData("ekspresi kosong")
-        t0 = time.perf_counter()
-        postfix, langkah1 = self.ke_postfix_langkah(token)
-        total, langkah2 = self.hitung_langkah(postfix)
-        ms = (time.perf_counter() - t0) * 1000.0
-        baris = []
-        baris.append("postfix : " + " ".join(postfix))
-        baris.append("TOTAL   : " + rupiah(total))
-        baris.append("lama    : " + format_angka(ms, 2) + " ms")
-        baris.append("")
-        baris.append("TAHAP 1 - konversi infix -> postfix")
-        baris.extend(langkah1)
-        baris.append("TAHAP 2 - hitung postfix (pop kanan dulu untuk - dan /)")
-        baris.extend(langkah2)
-        return HasilM2("STACK - POSTFIX (MESIN KASIR)", "\n".join(baris),
-                       adu=None,
-                       log=["postfix: " + " ".join(postfix),
-                            "TOTAL : " + rupiah(total) + " [{0} ms]".format(
-                                format_angka(ms, 2))])
-
-    def ke_postfix_langkah(self, token):
-        keluaran = []
-        op = Tumpukan()
-        langkah = []
-        nomor = 0
-        for t in token:
-            nomor += 1
-            if t in ("+", "-", "*", "/"):
-                while (not op.kosong()) and op.peek() != "(" and _prio(op.peek()) >= _prio(t):
-                    keluaran.append(op.pop())
-                op.push(t)
-            elif t == "(":
-                op.push(t)
-            elif t == ")":
-                while (not op.kosong()) and op.peek() != "(":
-                    keluaran.append(op.pop())
-                if op.kosong():
-                    raise GalatData("kurung ')' tanpa '('")
-                op.pop()
-            else:
-                keluaran.append(t)
-            langkah.append("  {0:>2}  {1:<8} stack [ {2} ]   keluaran {3}".format(
-                nomor, t, " ".join(_isi_tumpukan(op)), " ".join(keluaran)))
-        while not op.kosong():
-            t = op.pop()
-            if t == "(":
-                raise GalatData("kurung '(' tidak ditutup")
-            keluaran.append(t)
-            langkah.append("  {0:>2}  {1:<8} stack [ {2} ]   keluaran {3}".format(
-                nomor, "sisa", " ".join(_isi_tumpukan(op)), " ".join(keluaran)))
-        return keluaran, langkah
-
-    def hitung_langkah(self, postfix):
-        angka = Tumpukan()
-        langkah = []
-        nomor = 0
-        for t in postfix:
-            nomor += 1
-            if t in ("+", "-", "*", "/"):
-                b = angka.pop()
-                a = angka.pop()
-                if a is None or b is None:
-                    raise GalatData("postfix tidak sah: operand kurang")
-                if t == "+":
-                    hasil = a + b
-                elif t == "-":
-                    hasil = a - b
-                elif t == "*":
-                    hasil = a * b
-                else:
-                    if b == 0:
-                        raise GalatData("pembagian dengan nol")
-                    hasil = a / b
-                angka.push(hasil)
-            else:
-                angka.push(_nilai_token(t))
-            langkah.append("  {0:>2}  {1:<8} tumpukan [ {2} ]".format(
-                nomor, t, " ".join(_teks_isi(angka))))
-        hasil = angka.pop()
-        if not angka.kosong():
-            raise GalatData("postfix tidak sah: sisa operand")
-        if hasil is None:
-            raise GalatData("postfix kosong")
-        return hasil, langkah
-
-    # -------------------------------------------------- queue
-    def enqueue(self, pesanan):
-        g0 = self.naif.larik.geseran
-        t0 = time.perf_counter()
-        self.naif.enqueue(pesanan)
-        ms_naif = (time.perf_counter() - t0) * 1000.0
-        t0 = time.perf_counter()
-        self.melingkar.enqueue(pesanan)
-        ms_circ = (time.perf_counter() - t0) * 1000.0
-        geser = self.naif.larik.geseran - g0
-        self._catat_aksi("ENQUEUE", [pesanan])
-        baris = []
-        baris.append(pesanan.oid + " masuk paling belakang")
-        baris.append(baris_adu("naif", ms_naif, geser))
-        baris.append(baris_adu("melingkar", ms_circ, 0))
-        return HasilM2("QUEUE - ENQUEUE", "\n".join(baris),
-                       adu=("Antrean naif", teks_adu(ms_naif, geser),
-                            "Antrean melingkar", teks_adu(ms_circ, 0), "queue"),
-                       log=[pesanan.oid + " masuk paling belakang",
-                            "naif {0} ms | melingkar {1} ms".format(
-                                format_angka(ms_naif, 2), format_angka(ms_circ, 2))])
-
-    def dequeue(self, teks_jumlah, versi):
-        if self.naif.size() == 0:
-            raise GalatIndeks("antrean kosong")
-        try:
-            n = int(str(teks_jumlah).strip())
-        except (TypeError, ValueError):
-            raise GalatIndeks("jumlah bukan angka: {0}".format(teks_jumlah))
-        if n < 1:
-            raise GalatIndeks("jumlah minimal 1")
-        if n > self.naif.size():
-            raise GalatIndeks("jumlah {0} melebihi panjang antrean {1}".format(
-                n, self.naif.size()))
-        keluar = []
-        g0 = self.naif.larik.geseran
-        t0 = time.perf_counter()
-        k = 0
-        while k < n:
-            x = self.naif.dequeue()
-            if x is not None:
-                keluar.append(x)
-            k += 1
-        ms_naif = (time.perf_counter() - t0) * 1000.0
-        t0 = time.perf_counter()
-        k = 0
-        while k < n:
-            self.melingkar.dequeue()
-            k += 1
-        ms_circ = (time.perf_counter() - t0) * 1000.0
-        geser = self.naif.larik.geseran - g0
-        self._catat_aksi("DEQUEUE", keluar)
-        contoh = keluar[0].oid
-        if n > 1:
-            contoh = contoh + " ... " + keluar[n - 1].oid
-        baris = []
-        baris.append("{0} pesanan keluar: {1}".format(format_angka(n), contoh))
-        baris.append(baris_adu("naif", ms_naif, geser))
-        baris.append(baris_adu("melingkar", ms_circ, 0))
-        fokus = "naif" if versi == "naif" else "melingkar"
-        return HasilM2("QUEUE - DEQUEUE " + versi.upper(), "\n".join(baris),
-                       adu=("Antrean naif", teks_adu(ms_naif, geser),
-                            "Antrean melingkar", teks_adu(ms_circ, 0), fokus),
-                       log=["{0} pesanan keluar".format(format_angka(n)),
-                            "naif {0} ms, geser {1} | melingkar {2} ms, geser 0".format(
-                                format_angka(ms_naif, 2), format_angka(geser),
-                                format_angka(ms_circ, 2))])
-
-    # -------------------------------------------------- undo / redo
-    def undo_last(self):
-        if self.undo.kosong():
-            raise GalatIndeks("tumpukan undo kosong, tidak ada yang dibatalkan")
-        jenis, daftar = self.undo.pop()
-        t0 = time.perf_counter()
-        if jenis == "ENQUEUE":
-            self.naif.dequeue_back()
-            self.melingkar.dequeue_back()
-            pesan = daftar[0].oid + " dibatalkan dari belakang antrean"
-        else:
-            i = len(daftar) - 1
-            while i >= 0:
-                self.naif.enqueue_front(daftar[i])
-                self.melingkar.enqueue_front(daftar[i])
-                i -= 1
-            pesan = "{0} pesanan dikembalikan ke DEPAN kedua antrean".format(
-                format_angka(len(daftar)))
-        ms = (time.perf_counter() - t0) * 1000.0
-        self.redo.push((jenis, daftar))
-        self.riwayat.append("UNDO " + jenis)
-        baris = []
-        baris.append(pesan)
-        baris.append("lama    : " + format_angka(ms, 2) + " ms")
-        baris.append("undo {0}, redo {1}".format(self.undo.size(), self.redo.size()))
-        return HasilM2("STACK - UNDO LAST", "\n".join(baris),
-                       adu=("Tumpukan undo", "kedalaman " + str(self.undo.size()),
-                            "Tumpukan redo", "kedalaman " + str(self.redo.size()),
-                            "stack"),
-                       log=[pesan, "[M2 - stack] {0} ms".format(format_angka(ms, 2))])
-
-    def redo_last(self):
-        if self.redo.kosong():
-            return HasilM2("STACK - REDO LAST",
-                           "tumpukan redo kosong, tidak ada yang diulang",
-                           adu=("Tumpukan undo", "kedalaman " + str(self.undo.size()),
-                                "Tumpukan redo", "kedalaman " + str(self.redo.size()),
-                                "stack"),
-                           log=["tumpukan redo kosong, tidak ada yang diulang"])
-        jenis, daftar = self.redo.pop()
-        t0 = time.perf_counter()
-        if jenis == "ENQUEUE":
-            for p in daftar:
-                self.naif.enqueue(p)
-                self.melingkar.enqueue(p)
-            pesan = daftar[0].oid + " dimasukkan lagi ke belakang antrean"
-        else:
-            k = 0
-            while k < len(daftar):
-                self.naif.dequeue()
-                self.melingkar.dequeue()
-                k += 1
-            pesan = "{0} pesanan keluar lagi dari depan kedua antrean".format(
-                format_angka(len(daftar)))
-        ms = (time.perf_counter() - t0) * 1000.0
-        self.undo.push((jenis, daftar))
-        self.riwayat.append("REDO " + jenis)
-        baris = []
-        baris.append(pesan)
-        baris.append("lama    : " + format_angka(ms, 2) + " ms")
-        baris.append("undo {0}, redo {1}".format(self.undo.size(), self.redo.size()))
-        return HasilM2("STACK - REDO LAST", "\n".join(baris),
-                       adu=("Tumpukan undo", "kedalaman " + str(self.undo.size()),
-                            "Tumpukan redo", "kedalaman " + str(self.redo.size()),
-                            "stack"),
-                       log=[pesan, "[M2 - stack] {0} ms".format(format_angka(ms, 2))])
-
-    # -------------------------------------------------- lain-lain
-    def history(self):
-        return list(self.riwayat)
-
-    def stat(self):
-        return (("panjang antrean naif", self.naif.size()),
-                ("panjang antrean melingkar", self.melingkar.size()),
-                ("kapasitas naif", self.naif.larik.kapasitas),
-                ("kapasitas melingkar", self.melingkar.kapasitas),
-                ("total geseran naif", self.naif.larik.geseran),
-                ("pertumbuhan melingkar", self.melingkar.tumbuh),
-                ("kedalaman undo", self.undo.size()),
-                ("kedalaman redo", self.redo.size()))
-
-    def _catat_aksi(self, jenis, daftar):
-        self.undo.push((jenis, daftar))
-        self.redo = Tumpukan()
-        self.riwayat.append(jenis + " " + str(len(daftar)) + " pesanan")
-
-
-def teks_adu(ms, geser):
-    return "{0} ms, geser {1}".format(format_angka(ms, 2), format_angka(geser))
-
-
-def baris_adu(nama, ms, geser):
-    return "  {0:<10} : {1} ms  |  {2} elemen digeser".format(
-        nama, format_angka(ms, 2), format_angka(geser))
-
-
-def _ambil(baris, indeks):
-    if indeks < 0 or indeks >= len(baris):
-        return ""
-    return baris[indeks].strip()
-
-
-def _angka(teks, bawaan):
+def _bilangan(teks, bawaan):
     teks = (teks or "").strip()
     if teks == "":
         return bawaan
     try:
         return int(teks)
     except ValueError:
-        pass
-    try:
-        return int(float(teks))
-    except ValueError:
         return bawaan
 
 
-def _baris_isi(baris):
-    for s in baris:
-        if s.strip():
-            return True
-    return False
+def ambil_kunci(pesanan, nama):
+    """Ambil nilai yang dipakai sebagai kunci pengurutan/pencarian."""
+    if nama == "oid":
+        return pesanan.oid
+    if nama == "harga":
+        return pesanan.harga
+    if nama == "selesai":
+        return pesanan.t_selesai if pesanan.t_selesai is not None else 0
+    raise ValueError("kunci hanya boleh oid, harga, atau selesai")
 
 
-def _pemisah(teks):
-    if teks.count(";") > teks.count(","):
-        return ";"
-    return ","
+# ------------------------------------------------------- mesin kasir
+
+def tokenkan(teks):
+    """Pecah struk menjadi token; kurung dipisah supaya mudah di-split."""
+    return teks.replace("(", " ( ").replace(")", " ) ").split()
 
 
-def _mungkin_header(baris):
-    if not baris:
-        return False
-    awal = baris[0].strip().lower()
-    return awal.startswith("oid") or awal.startswith("id")
+def _prio(op):
+    if op == "*" or op == "/":
+        return 2
+    if op == "+" or op == "-":
+        return 1
+    return 0
 
 
-def _normal(nama):
-    return nama.strip().lower().replace(" ", "_").replace("-", "_")
+def ke_postfix(token):
+    """Ubah token infix menjadi postfix memakai Stack operator."""
+    keluar = []
+    tumpuk = Stack()
+    for t in token:
+        if t in ("+", "-", "*", "/"):
+            while (not tumpuk.is_empty()) and tumpuk.peek() != "(" \
+                    and _prio(tumpuk.peek()) >= _prio(t):
+                keluar.append(tumpuk.pop())
+            tumpuk.push(t)
+        elif t == "(":
+            tumpuk.push(t)
+        elif t == ")":
+            while (not tumpuk.is_empty()) and tumpuk.peek() != "(":
+                keluar.append(tumpuk.pop())
+            tumpuk.pop()
+        else:
+            keluar.append(t)
+    while not tumpuk.is_empty():
+        keluar.append(tumpuk.pop())
+    return keluar
 
 
-def _petakan_kolom(header):
-    normal = []
-    for nama in header:
-        normal.append(_normal(nama))
-    peta = []
-    for _, alias in ALIAS_KOLOM:
-        ketemu = -1
-        for a in alias:
-            for i, nama in enumerate(normal):
-                if nama == a:
-                    ketemu = i
-                    break
-            if ketemu >= 0:
-                break
-        if ketemu < 0:
-            for _, alias_lain in ALIAS_KOLOM:
-                for a in alias_lain:
-                    for i, nama in enumerate(normal):
-                        if a in nama:
-                            ketemu = i
-                            break
-                    if ketemu >= 0:
-                        break
-                if ketemu >= 0:
-                    break
-        peta.append(ketemu)
-    if peta[0] < 0:
-        raise GalatData("kolom oid tidak ditemukan pada header: " + str(header))
-    return peta
+def _angka_token(t):
+    try:
+        return int(t)
+    except ValueError:
+        return float(t)
 
 
-def _petakan_urutan():
-    peta = []
-    for i in range(len(URUTAN_KOLOM)):
-        peta.append(i)
-    return peta
+def hitung_postfix(postfix):
+    """Hitung postfix memakai Stack angka; yang keluar dulu operand kanan."""
+    tumpuk = Stack()
+    for t in postfix:
+        if t in ("+", "-", "*", "/"):
+            b = tumpuk.pop()
+            a = tumpuk.pop()
+            if t == "+":
+                tumpuk.push(a + b)
+            elif t == "-":
+                tumpuk.push(a - b)
+            elif t == "*":
+                tumpuk.push(a * b)
+            else:
+                if b == 0:
+                    raise ValueError("pembagian dengan nol")
+                tumpuk.push(a / b)
+        else:
+            tumpuk.push(_angka_token(t))
+    return tumpuk.pop()
 
+
+# ------------------------------------------------------------ jendela
 
 class Jendela:
     def __init__(self, root, path):
         self.root = root
         self.path = path
-        self.antrean = AntreanPesanan(path)
-        self.m2 = MesinAntrean()
+
+        # objek struktur data dibuat di sini
+        self.array = Array()
+        self.link = LinkedList()
+        self.naif = NaiveQueue()
+        self.melingkar = CircularQueue()
+        self.undo = Stack()
+        self.redo = Stack()
+
+        self.jumlah_muat = 0
+        self.nomor_baru = 0
         self.rek_terpilih = None
         self.fokus = ""
         self.entri = []
-        self.ms_muat = 0.0
+        self.urut_oid = None
 
         root.title(JUDUL)
         root.geometry("1200x780")
@@ -858,7 +283,7 @@ class Jendela:
 
         self.root.after(150, self.muat_awal)
 
-    # -------------------------------------------------- bangun tata letak
+    # -------------------------------------------------- tata letak
     def _bangun_menu(self):
         self.bingkai = ttk.Frame(self.root, padding=6)
         self.bingkai.pack(side="top", fill="both", expand=True)
@@ -885,8 +310,7 @@ class Jendela:
 
     def _bangun_kanan(self):
         self.label_info = ttk.Label(self.kanan, text="Pilih menu di kiri untuk mulai.",
-                                    wraplength=760, justify="left",
-                                    foreground="#334")
+                                    wraplength=760, justify="left", foreground="#334")
         self.label_info.grid(row=0, column=0, sticky="w", pady=(0, 6))
         self.kanan.columnconfigure(0, weight=1)
 
@@ -908,10 +332,6 @@ class Jendela:
         self.kotak_hasil.columnconfigure(0, weight=1)
         self.kotak_hasil.rowconfigure(0, weight=1)
         self.teks_hasil.tag_configure("kepala", font=("DejaVu Sans Mono", 10, "bold"))
-        self.teks_hasil.tag_configure("array", foreground="#1a4fa0",
-                                      font=("DejaVu Sans Mono", 10, "bold"))
-        self.teks_hasil.tag_configure("link", foreground="#0a7a3d",
-                                      font=("DejaVu Sans Mono", 10, "bold"))
         self.teks_hasil.configure(state="disabled")
 
         self.kotak_adu = ttk.LabelFrame(self.kanan, text="ADU PERFORMA", padding=8)
@@ -949,27 +369,65 @@ class Jendela:
         self._ganti_status("Memuat data dari " + self.path + " ...")
         self.root.update_idletasks()
         try:
-            jumlah, ms = self.antrean.muat_csv(self.path)
+            jumlah, ms = self.muat_data(self.path)
         except OSError:
             self._ganti_status("Berkas tidak ditemukan: " + self.path)
             self._catat("GAGAL memuat data: Berkas tidak ditemukan", "galat")
             return
-        except GalatData as galat:
-            self._ganti_status("Data tidak bisa dibaca: {0}".format(galat))
-            self._catat("GAGAL memuat data: {0}".format(galat), "galat")
-            return
-        self.ms_muat = ms
-        self.m2.muat_dari(self.antrean)
         self._ganti_status(
-            "dimuat {0} pesanan dalam {1} ms | array kapasitas {2} | linklist {3} simpul".format(
-                format_angka(jumlah), format_angka(ms, 2),
-                format_angka(self.antrean.array.kapasitas),
-                format_angka(jumlah)))
-        self._catat("MUAT {0} pesanan ke kedua struktur dari {1} [{2} ms]".format(
-            format_angka(jumlah), self.path,
-            format_angka(ms, 2)), "modul")
-        self._catat("M2: {0} pesanan berstatus ANTRE masuk ke KEDUA antrean".format(
-            format_angka(self.m2.jumlah_muat)), "modul")
+            "dimuat {0} pesanan dalam {1} ms | array kapasitas {2} | {3} pesanan ANTRE".format(
+                angka(jumlah), angka(ms, 2), angka(self.array.capacity),
+                angka(self.naif.size())))
+        self._catat("MUAT {0} pesanan ke Array & LinkList [{1} ms]".format(
+            angka(jumlah), angka(ms, 2)), "modul")
+        self._catat("M2: {0} pesanan ANTRE masuk ke KEDUA antrean".format(
+            angka(self.naif.size())), "modul")
+
+    def muat_data(self, path):
+        """Baca CSV ke Array dan LinkList, lalu isi kedua antrean M2."""
+        self.array = Array()
+        self.link = LinkedList()
+        self.urut_oid = None
+        jumlah = 0
+        awal = time.perf_counter()
+        with open(path, "r", newline="", encoding="utf-8-sig") as f:
+            baris = csv.reader(f)
+            try:
+                next(baris)  # buang baris header
+            except StopIteration:
+                raise OSError("CSV kosong: " + path)
+            for kolom in baris:
+                if len(kolom) < 9 or not kolom[0].strip():
+                    continue
+                pesanan = Pesanan(
+                    kolom[0].strip(), kolom[1].strip(), kolom[2].strip(),
+                    kolom[3].strip(), _bilangan(kolom[4], 0),
+                    _bilangan(kolom[5], 3), _bilangan(kolom[6], 0),
+                    _bilangan(kolom[7], None), kolom[8].strip() or "ANTRE")
+                self.array.insert(self.array.size, pesanan)
+                self.link.insert(self.link.size, pesanan)
+                jumlah += 1
+        ms = (time.perf_counter() - awal) * 1000.0
+        self.jumlah_muat = jumlah
+        self._isi_antrean_m2()
+        return jumlah, ms
+
+    def _isi_antrean_m2(self):
+        self.naif = NaiveQueue()
+        self.melingkar = CircularQueue()
+        self.undo = Stack()
+        self.redo = Stack()
+        i = 0
+        while i < self.array.size:
+            pesanan = self.array.get(i)
+            if pesanan.status == "ANTRE":
+                self.naif.enqueue(pesanan)
+                self.melingkar.enqueue(pesanan)
+            i += 1
+
+    def _oid_baru(self):
+        self.nomor_baru += 1
+        return "O-{0:06d}".format(self.jumlah_muat + self.nomor_baru)
 
     # -------------------------------------------------- pilih menu
     def pilih_menu(self, _=None):
@@ -991,24 +449,35 @@ class Jendela:
         mode = rek[4]
         baris = 0
         if mode == "no":
-            self._tambah_entri(baris, "no", "Nomor pesanan (1-based)", "100000")
-            baris += 1
+            self._tambah_entri(0, "no", "Nomor pesanan (1-based)", "100000")
+            baris = 1
         elif mode in ("reguler", "prioritas", "vip"):
-            self._tambah_entri(baris, "pelanggan", "pelanggan", "Pelanggan Baru")
-            self._tambah_entri(baris + 1, "resto", "resto", "warung-uji")
-            self._tambah_entri(baris + 2, "menu", "menu", "nasi-goreng")
-            self._tambah_entri(baris + 3, "harga", "harga", "22000")
-            baris += 4
+            self._tambah_entri(0, "pelanggan", "pelanggan", "Pelanggan Baru")
+            self._tambah_entri(1, "resto", "resto", "warung-uji")
+            self._tambah_entri(2, "menu", "menu", "nasi-goreng")
+            self._tambah_entri(3, "harga", "harga", "22000")
+            baris = 4
         elif mode == "ekspresi":
-            self._tambah_entri(baris, "ekspresi", "ekspresi infix",
+            self._tambah_entri(0, "ekspresi", "ekspresi infix",
                                "( 3 * 12000 ) + ( 2 * 8500 ) - 5000")
-            baris += 1
+            baris = 1
         elif mode == "order":
-            self._tambah_entri(baris, "pelanggan", "pelanggan", "Pelanggan Baru")
-            baris += 1
+            self._tambah_entri(0, "pelanggan", "pelanggan", "Pelanggan Baru")
+            baris = 1
         elif mode == "jumlah":
-            self._tambah_entri(baris, "jumlah", "jumlah pesanan", "1")
-            baris += 1
+            self._tambah_entri(0, "jumlah", "jumlah pesanan", "1")
+            baris = 1
+        elif mode == "sort_kecil":
+            self._tambah_entri(0, "kunci", "kunci (oid/harga/selesai)", "harga")
+            self._tambah_entri(1, "jumlah", "jumlah baris (maks 5000)", "10")
+            baris = 2
+        elif mode == "sort_besar":
+            self._tambah_entri(0, "kunci", "kunci (oid/harga/selesai)", "oid")
+            self._tambah_entri(1, "jumlah", "jumlah baris (maks 200000)", "4000")
+            baris = 2
+        elif mode == "cari":
+            self._tambah_entri(0, "target", "oid yang dicari", "O-137442")
+            baris = 1
         ttk.Button(self.kotak_form, text="JALANKAN", command=self.jalankan).grid(
             row=baris, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.kotak_form.columnconfigure(1, weight=1)
@@ -1025,178 +494,485 @@ class Jendela:
     def _enter(self, _):
         self.jalankan()
 
-    # -------------------------------------------------- jalankan aksi
-    def jalankan(self):
-        if self.rek_terpilih is None:
-            return
-        kode, label, aksi, fokus, mode, _ = self.rek_terpilih
-        try:
-            catatan = self._lakukan(aksi, mode)
-        except (GalatIndeks, GalatData) as galat:
-            messagebox.showerror("Gagal", str(galat))
-            self._catat(label + ": " + str(galat), "galat")
-            return
-        if catatan is not None:
-            if isinstance(catatan, HasilM2):
-                self._tampil_m2(catatan)
-                self._log_m2(label, catatan)
-            else:
-                self._tampil(catatan)
-                self._log_operasi(label, catatan)
-        self._perbarui_status()
-
-    def _lakukan(self, aksi, mode):
-        if aksi == "muat":
-            jumlah, ms = self.antrean.muat_csv(self.path)
-            self.ms_muat = ms
-            jumlah_m2 = self.m2.muat_dari(self.antrean)
-            self._tampil_pesan("Data dibaca ulang: {0} pesanan dalam {1} ms\n"
-                               "M2: {2} pesanan ANTRE masuk ke KEDUA antrean".format(
-                                   format_angka(jumlah), format_angka(ms, 2),
-                                   format_angka(jumlah_m2)))
-            self._log_pesan("MUAT ULANG {0} pesanan [{1} ms]".format(
-                format_angka(jumlah), format_angka(ms, 2)))
-            return None
-        if aksi == "cek":
-            benar, pesan = self.antrean.verifikasi()
-            self._tampil_pesan("CEK KONSISTENSI: {0}\n  {1}".format(
-                "cocok" if benar else "TIDAK COCOK", pesan))
-            self._log_pesan("CEK KONSISTENSI: " + pesan)
-            return None
-        if aksi == "stat":
-            baris = []
-            for nama, nilai in self.antrean.stat():
-                baris.append("  {0:<28} {1}".format(nama, format_angka(nilai)))
-            self._tampil_pesan("STATISTIK STRUKTUR\n" + "\n".join(baris))
-            self._log_pesan("STATISTIK STRUKTUR")
-            return None
-        if aksi == "cuplik":
-            daftar = self.antrean.potongan(0, 200)
-            baris = ["  {0:>7}. {1}".format(i + 1, p.ringkas())
-                     for i, p in enumerate(daftar)]
-            self._tampil_pesan("200 PESANAN PERTAMA\n" + "\n".join(baris))
-            self._log_pesan("CUPLIKAN 200 PESANAN")
-            return None
-        if aksi == "postfix":
-            return self.m2.mesin_kasir(self._nilai("ekspresi"))
-        if aksi == "undo":
-            return self.m2.undo_last()
-        if aksi == "redo":
-            return self.m2.redo_last()
-        if aksi == "enqueue":
-            return self.m2.enqueue(self._bentuk_pesanan_m2())
-        if aksi == "dequeue_naif":
-            return self.m2.dequeue(self._nilai("jumlah"), "naif")
-        if aksi == "dequeue_circular":
-            return self.m2.dequeue(self._nilai("jumlah"), "melingkar")
-        if aksi == "stat2":
-            baris = []
-            for nama, nilai in self.m2.stat():
-                baris.append("  {0:<28} {1}".format(nama, format_angka(nilai)))
-            return HasilM2("STATISTIK ANTREAN (M2)", "\n".join(baris),
-                           adu=None, log=["STATISTIK ANTREAN (M2)"])
-        if mode == "no":
-            no = self._nilai("no")
-            if aksi == "lihat":
-                return self.antrean.lihat(no)
-            return self.antrean.hapus(no)
-        pesanan = self._bentuk_pesanan(mode)
-        if mode == "reguler":
-            return self.antrean.tambah_reguler(pesanan)
-        if mode == "vip":
-            return self.antrean.tambah_vip(pesanan)
-        return self.antrean.tambah_prioritas(pesanan)
-
-    def _bentuk_pesanan(self, mode):
-        prioritas = 3
-        if mode == "vip":
-            prioritas = 1
-        elif mode == "prioritas":
-            prioritas = 2
-        harga_teks = self._nilai("harga")
-        try:
-            harga = int(harga_teks)
-        except ValueError:
-            harga = 0
-        return Pesanan(
-            self.antrean.oid_baru(), self._nilai("pelanggan"), self._nilai("resto"),
-            self._nilai("menu"), harga, prioritas, 0, None, "ANTRE")
-
-    def _bentuk_pesanan_m2(self):
-        return Pesanan(self.m2.oid_baru(), self._nilai("pelanggan"), "warung-uji",
-                       "menu-uji", 0, 3, 0, None, "ANTRE")
-
     def _nilai(self, nama):
         for n, w in self.entri:
             if n == nama:
                 return w.get()
         return ""
 
-    # -------------------------------------------------- tampilan hasil
-    def _tampil(self, catatan):
-        self.teks_hasil.configure(state="normal")
-        self.teks_hasil.delete("1.0", "end")
-        self.teks_hasil.insert("end", catatan.aksi + "\n", "kepala")
-        if catatan.aksi.startswith("LIHAT") and catatan.nilai is not None:
-            self.teks_hasil.insert("end", catatan.nilai.detail() + "\n")
+    # -------------------------------------------------- jalankan
+    def jalankan(self):
+        if self.rek_terpilih is None:
+            return
+        kode, label, aksi, fokus, mode, _ = self.rek_terpilih
+        try:
+            self._lakukan(aksi, mode)
+        except (ValueError, IndexError) as galat:
+            messagebox.showerror("Gagal", str(galat))
+            self._catat(label + ": " + str(galat), "galat")
+        self._perbarui_status()
+
+    def _lakukan(self, aksi, mode):
+        if aksi == "muat":
+            self.aksi_muat()
+        elif aksi == "cek":
+            self.aksi_cek()
+        elif aksi == "stat":
+            self.aksi_stat()
+        elif aksi == "cuplik":
+            self.aksi_cuplik()
+        elif aksi == "postfix":
+            self.aksi_postfix()
+        elif aksi == "undo":
+            self.aksi_undo()
+        elif aksi == "redo":
+            self.aksi_redo()
+        elif aksi == "enqueue":
+            self.aksi_enqueue()
+        elif aksi == "dequeue_naif":
+            self.aksi_dequeue("naif")
+        elif aksi == "dequeue_circular":
+            self.aksi_dequeue("melingkar")
+        elif aksi == "stat2":
+            self.aksi_stat2()
+        elif aksi == "sort_insertion":
+            self.aksi_insertion_sort()
+        elif aksi == "sort_merge":
+            self.aksi_merge_sort()
+        elif aksi == "search_linear":
+            self.aksi_linear_search()
+        elif aksi == "search_binary":
+            self.aksi_binary_search()
+        elif aksi == "lihat":
+            self.aksi_lihat()
+        elif aksi == "hapus":
+            self.aksi_hapus()
         else:
-            self.teks_hasil.insert("end", catatan.pesan + "\n")
-            if catatan.nilai is not None:
-                self.teks_hasil.insert("end", catatan.nilai.ringkas() + "\n")
-        self.teks_hasil.insert("end", "\n")
-        self.teks_hasil.insert("end", "Array     : {0} ms  (geser {1})\n".format(
-            format_angka(catatan.ms_array, 2), format_angka(catatan.geseran)))
-        self.teks_hasil.insert("end", "LinkList  : {0} ms  (telusur {1} simpul)\n".format(
-            format_angka(catatan.ms_link, 2), format_angka(catatan.langkah)))
-        self.teks_hasil.insert("end", "posisi    : ke-{0}\n".format(catatan.indeks + 1))
-        self.teks_hasil.configure(state="disabled")
-        self._perbarui_adu(catatan)
+            self.aksi_tambah(mode)
 
-    def _tampil_pesan(self, teks):
-        self.teks_hasil.configure(state="normal")
-        self.teks_hasil.delete("1.0", "end")
-        self.teks_hasil.insert("end", teks + "\n")
-        self.teks_hasil.configure(state="disabled")
+    # -------------------------------------------------- aksi M1
+    def _indeks(self, teks):
+        if self.array.size == 0:
+            raise ValueError("antrean masih kosong")
+        try:
+            n = int(str(teks).strip())
+        except ValueError:
+            raise ValueError("nomor pesanan bukan angka: " + str(teks))
+        if n < 1 or n > self.array.size:
+            raise ValueError("nomor {0} di luar jangkauan 1..{1}".format(n, self.array.size))
+        return n - 1
 
-    def _tampil_m2(self, hasil):
-        self.teks_hasil.configure(state="normal")
-        self.teks_hasil.delete("1.0", "end")
-        self.teks_hasil.insert("end", hasil.aksi + "\n", "kepala")
-        self.teks_hasil.insert("end", hasil.teks + "\n")
-        self.teks_hasil.configure(state="disabled")
-        if hasil.adu is None:
-            self.label_array.configure(text="  -")
-            self.label_link.configure(text="  -")
+    def aksi_lihat(self):
+        i = self._indeks(self._nilai("no"))
+        pa, pl, ms_a, ms_l, geser, telusur = self._adu(
+            lambda: self.array.get(i), lambda: self.link.get(i))
+        if pa is None or pl is None or pa.oid != pl.oid:
+            raise ValueError("struktur tidak sinkron di indeks " + str(i))
+        self._tulis_hasil(pa.detail(), "LIHAT no " + str(i + 1))
+        self._adu_m1(self.fokus, ms_a, geser, ms_l, telusur)
+        self._catat("LIHAT no {0} [{1}]".format(i + 1, pa.oid), "perintah")
+        self._catat("  [M1 - array] {0} ms, geser {1}   |   "
+                    "[M1 - linklist] {2} ms, telusur {3}".format(
+                        angka(ms_a, 2), angka(geser), angka(ms_l, 2), angka(telusur)),
+                    "modul")
+
+    def aksi_tambah(self, jenis):
+        if jenis == "vip":
+            i = 0
+            prioritas = 1
+        elif jenis == "prioritas":
+            i = self.array.size // 2
+            prioritas = 2
         else:
-            nama1, t1, nama2, t2, fokus = hasil.adu
-            self.label_array.configure(
-                text=("- " if fokus == "naif" else "  ") + "{0:<16} {1}".format(nama1, t1))
-            self.label_link.configure(
-                text=("- " if fokus == "melingkar" else "  ") + "{0:<16} {1}".format(nama2, t2))
+            i = self.array.size
+            prioritas = 3
+        pesanan = Pesanan(self._oid_baru(), self._nilai("pelanggan"),
+                          self._nilai("resto"), self._nilai("menu"),
+                          _bilangan(self._nilai("harga"), 0), prioritas, 0, None, "ANTRE")
+        pa, pl, ms_a, ms_l, geser, telusur = self._adu(
+            lambda: self.array.insert(i, pesanan),
+            lambda: self.link.insert(i, pesanan))
+        self.urut_oid = None   # data berubah, daftar terurut oid tidak berlaku lagi
+        label = "TAMBAH " + jenis.upper()
+        self._tulis_hasil("{0} masuk di posisi ke-{1}".format(pesanan.oid, i + 1), label)
+        self._adu_m1(self.fokus, ms_a, geser, ms_l, telusur)
+        self._catat(label + " " + pesanan.oid, "perintah")
+        self._catat("  posisi ke-{0} | [array] {1} ms, geser {2}   |   "
+                    "[linklist] {3} ms, telusur {4}".format(
+                        i + 1, angka(ms_a, 2), angka(geser), angka(ms_l, 2),
+                        angka(telusur)), "modul")
 
-    def _perbarui_adu(self, catatan):
-        t_array = "Array      {0} ms  (geser {1} elemen)".format(
-            format_angka(catatan.ms_array, 2), format_angka(catatan.geseran))
-        t_link = "LinkList   {0} ms  (telusur {1} simpul)".format(
-            format_angka(catatan.ms_link, 2), format_angka(catatan.langkah))
-        self.label_array.configure(text=("- " if self.fokus == "array" else "  ") + t_array)
-        self.label_link.configure(text=("- " if self.fokus == "link" else "  ") + t_link)
+    def aksi_hapus(self):
+        i = self._indeks(self._nilai("no"))
+        pa, pl, ms_a, ms_l, geser, telusur = self._adu(
+            lambda: self.array.remove(i), lambda: self.link.remove(i))
+        if pa is None or pl is None or pa.oid != pl.oid:
+            raise ValueError("struktur tidak sinkron saat hapus indeks " + str(i))
+        self._tulis_hasil(pa.oid + " dicabut dari antrean", "HAPUS no " + str(i + 1))
+        self._adu_m1(self.fokus, ms_a, geser, ms_l, telusur)
+        self._catat("HAPUS no {0} [{1}]".format(i + 1, pa.oid), "perintah")
+        self._catat("  [M1 - array] {0} ms, geser {1}   |   "
+                    "[M1 - linklist] {2} ms, telusur {3}".format(
+                        angka(ms_a, 2), angka(geser), angka(ms_l, 2), angka(telusur)),
+                    "modul")
 
-    def _log_operasi(self, label, c):
-        self._catat(label, "perintah")
-        self._catat("  " + c.pesan, "modul")
-        self._catat("  [M1 - array] {0} ms, geser {1} elemen   |   "
-                    "[M1 - linklist] {2} ms, telusur {3} simpul".format(
-                        format_angka(c.ms_array, 2), format_angka(c.geseran),
-                        format_angka(c.ms_link, 2), format_angka(c.langkah)), "modul")
+    def _adu(self, kerja_array, kerja_link):
+        """Kerjakan hal sama di Array dan LinkList, ukur waktu dan hitungannya."""
+        geser0 = self.array.shifts
+        telusur0 = self.link.traversals
+        t0 = time.perf_counter()
+        hasil_array = kerja_array()
+        ms_array = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        hasil_link = kerja_link()
+        ms_link = (time.perf_counter() - t0) * 1000.0
+        return (hasil_array, hasil_link, ms_array, ms_link,
+                self.array.shifts - geser0, self.link.traversals - telusur0)
 
-    def _log_m2(self, label, hasil):
-        self._catat(label, "perintah")
-        for teks in hasil.log:
-            self._catat("  " + teks, "modul")
+    def _adu_m1(self, fokus, ms_a, geser, ms_l, telusur):
+        self.label_array.configure(text=("- " if fokus == "array" else "  ") +
+                                   "Array      {0} ms  (geser {1} elemen)".format(
+                                       angka(ms_a, 2), angka(geser)))
+        self.label_link.configure(text=("- " if fokus == "link" else "  ") +
+                                  "LinkList   {0} ms  (telusur {1} simpul)".format(
+                                      angka(ms_l, 2), angka(telusur)))
 
-    def _log_pesan(self, teks):
-        self._catat(teks, "modul")
+    # -------------------------------------------------- aksi M2
+    def aksi_postfix(self):
+        token = tokenkan(self._nilai("ekspresi"))
+        if not token:
+            raise ValueError("ekspresi kosong")
+        postfix = ke_postfix(token)
+        total = hitung_postfix(postfix)
+        teks = "postfix : {0}\nTOTAL   : {1}".format(" ".join(postfix), rupiah(total))
+        self._tulis_hasil(teks, "STACK - POSTFIX (MESIN KASIR)")
+        self.label_array.configure(text="  -")
+        self.label_link.configure(text="  -")
+        self._catat("POSTFIX {" + " ".join(postfix) + "}", "perintah")
+        self._catat("  TOTAL " + rupiah(total) + " [M2 - stack]", "modul")
+
+    def aksi_enqueue(self):
+        pesanan = Pesanan(self._oid_baru(), self._nilai("pelanggan"),
+                          "warung-uji", "menu-uji", 0, 3, 0, None, "ANTRE")
+        g0 = self.naif.array.shifts
+        t0 = time.perf_counter()
+        self.naif.enqueue(pesanan)
+        ms_naif = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        self.melingkar.enqueue(pesanan)
+        ms_circ = (time.perf_counter() - t0) * 1000.0
+        geser = self.naif.array.shifts - g0
+        self.undo.push(("ENQUEUE", [pesanan]))
+        self.redo = Stack()
+        self._tulis_hasil(pesanan.oid + " masuk paling belakang", "QUEUE - ENQUEUE")
+        self._adu_m2("", ms_naif, geser, ms_circ, 0)
+        self._catat("ENQUEUE " + pesanan.oid, "perintah")
+        self._catat("  naif {0} ms, geser {1}   |   melingkar {2} ms".format(
+            angka(ms_naif, 2), angka(geser), angka(ms_circ, 2)), "modul")
+
+    def aksi_dequeue(self, versi):
+        if self.naif.size() == 0:
+            raise ValueError("antrean kosong")
+        try:
+            n = int(str(self._nilai("jumlah")).strip())
+        except ValueError:
+            raise ValueError("jumlah bukan angka: " + self._nilai("jumlah"))
+        if n < 1:
+            raise ValueError("jumlah minimal 1")
+        if n > self.naif.size():
+            raise ValueError("jumlah {0} melebihi panjang antrean {1}".format(
+                n, self.naif.size()))
+        keluar = []
+        g0 = self.naif.array.shifts
+        t0 = time.perf_counter()
+        k = 0
+        while k < n:
+            keluar.append(self.naif.dequeue())
+            k += 1
+        ms_naif = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        k = 0
+        while k < n:
+            self.melingkar.dequeue()
+            k += 1
+        ms_circ = (time.perf_counter() - t0) * 1000.0
+        geser = self.naif.array.shifts - g0
+        self.undo.push(("DEQUEUE", keluar))
+        self.redo = Stack()
+        contoh = keluar[0].oid
+        if n > 1:
+            contoh += " ... " + keluar[n - 1].oid
+        self._tulis_hasil("{0} pesanan keluar: {1}".format(angka(n), contoh),
+                          "QUEUE - DEQUEUE " + versi.upper())
+        self._adu_m2(versi, ms_naif, geser, ms_circ, 0)
+        self._catat("DEQUEUE {0} pesanan ({1})".format(angka(n), versi), "perintah")
+        self._catat("  naif {0} ms, geser {1}   |   melingkar {2} ms, geser 0".format(
+            angka(ms_naif, 2), angka(geser), angka(ms_circ, 2)), "modul")
+
+    def aksi_undo(self):
+        if self.undo.is_empty():
+            raise ValueError("tumpukan undo kosong, tidak ada yang dibatalkan")
+        jenis, daftar = self.undo.pop()
+        if jenis == "ENQUEUE":
+            self.naif.dequeue_back()
+            self.melingkar.dequeue_back()
+            pesan = daftar[0].oid + " dibatalkan dari belakang antrean"
+        else:
+            i = len(daftar) - 1
+            while i >= 0:
+                self.naif.enqueue_front(daftar[i])
+                self.melingkar.enqueue_front(daftar[i])
+                i -= 1
+            pesan = "{0} pesanan dikembalikan ke DEPAN kedua antrean".format(
+                angka(len(daftar)))
+        self.redo.push((jenis, daftar))
+        self._tulis_hasil(pesan, "STACK - UNDO LAST")
+        self.label_array.configure(text="  Tumpukan undo  kedalaman " + str(self.undo.size()))
+        self.label_link.configure(text="  Tumpukan redo  kedalaman " + str(self.redo.size()))
+        self._catat("UNDO " + jenis, "perintah")
+        self._catat("  " + pesan, "modul")
+
+    def aksi_redo(self):
+        if self.redo.is_empty():
+            self._tulis_hasil("tumpukan redo kosong, tidak ada yang diulang",
+                              "STACK - REDO LAST")
+            self.label_array.configure(text="  Tumpukan undo  kedalaman " + str(self.undo.size()))
+            self.label_link.configure(text="  Tumpukan redo  kedalaman " + str(self.redo.size()))
+            self._catat("REDO: tumpukan redo kosong", "modul")
+            return
+        jenis, daftar = self.redo.pop()
+        if jenis == "ENQUEUE":
+            for pesanan in daftar:
+                self.naif.enqueue(pesanan)
+                self.melingkar.enqueue(pesanan)
+            pesan = daftar[0].oid + " dimasukkan lagi ke belakang antrean"
+        else:
+            k = 0
+            while k < len(daftar):
+                self.naif.dequeue()
+                self.melingkar.dequeue()
+                k += 1
+            pesan = "{0} pesanan keluar lagi dari depan kedua antrean".format(
+                angka(len(daftar)))
+        self.undo.push((jenis, daftar))
+        self._tulis_hasil(pesan, "STACK - REDO LAST")
+        self.label_array.configure(text="  Tumpukan undo  kedalaman " + str(self.undo.size()))
+        self.label_link.configure(text="  Tumpukan redo  kedalaman " + str(self.redo.size()))
+        self._catat("REDO " + jenis, "perintah")
+        self._catat("  " + pesan, "modul")
+
+    def _adu_m2(self, fokus, ms_n, geser, ms_c, geser_c):
+        self.label_array.configure(text=("- " if fokus == "naif" else "  ") +
+                                   "Antrean naif       {0} ms  (geser {1})".format(
+                                       angka(ms_n, 2), angka(geser)))
+        self.label_link.configure(text=("- " if fokus == "melingkar" else "  ") +
+                                  "Antrean melingkar  {0} ms  (geser {1})".format(
+                                      angka(ms_c, 2), angka(geser_c)))
+
+    # -------------------------------------------------- aksi SISTEM
+    def aksi_muat(self):
+        jumlah, ms = self.muat_data(self.path)
+        self._tulis_hasil("Data dibaca ulang: {0} pesanan dalam {1} ms\n"
+                          "M2: {2} pesanan ANTRE masuk ke KEDUA antrean".format(
+                              angka(jumlah), angka(ms, 2), angka(self.naif.size())))
+        self._catat("MUAT ULANG {0} pesanan [{1} ms]".format(
+            angka(jumlah), angka(ms, 2)), "modul")
+
+    def aksi_cek(self):
+        pesan = self._verifikasi()
+        self._tulis_hasil(pesan)
+        self._catat("CEK KONSISTENSI: " + pesan, "modul")
+
+    def _verifikasi(self):
+        if self.array.size != self.link.size:
+            return "TIDAK COCOK: panjang berbeda {0} vs {1}".format(
+                self.array.size, self.link.size)
+        node = self.link.head
+        i = 0
+        while i < self.array.size:
+            if self.array.get(i) is not node.data:
+                return "TIDAK COCOK: indeks {0} berbeda".format(i)
+            node = node.next
+            i += 1
+        return "cocok: identik pada {0} posisi".format(self.array.size)
+
+    def aksi_stat(self):
+        baris = [
+            "  {0:<26} {1}".format("jumlah pesanan", angka(self.array.size)),
+            "  {0:<26} {1}".format("array kapasitas", angka(self.array.capacity)),
+            "  {0:<26} {1}".format("array geseran", angka(self.array.shifts)),
+            "  {0:<26} {1}".format("array penyalinan", angka(self.array.copies)),
+            "  {0:<26} {1}".format("linklist simpul", angka(self.link.size)),
+            "  {0:<26} {1}".format("linklist telusuran", angka(self.link.traversals)),
+        ]
+        self._tulis_hasil("STATISTIK STRUKTUR\n" + "\n".join(baris))
+        self._catat("STATISTIK STRUKTUR", "modul")
+
+    def aksi_stat2(self):
+        baris = [
+            "  {0:<26} {1}".format("panjang antrean naif", angka(self.naif.size())),
+            "  {0:<26} {1}".format("panjang antrean melingkar", angka(self.melingkar.size())),
+            "  {0:<26} {1}".format("kapasitas naif", angka(self.naif.array.capacity)),
+            "  {0:<26} {1}".format("kapasitas melingkar", angka(self.melingkar.capacity)),
+            "  {0:<26} {1}".format("total geseran naif", angka(self.naif.array.shifts)),
+            "  {0:<26} {1}".format("kedalaman undo", angka(self.undo.size())),
+            "  {0:<26} {1}".format("kedalaman redo", angka(self.redo.size())),
+        ]
+        self._tulis_hasil("STATISTIK ANTREAN (M2)\n" + "\n".join(baris))
+        self._catat("STATISTIK ANTREAN (M2)", "modul")
+
+    def aksi_cuplik(self):
+        baris = []
+        i = 0
+        while i < self.array.size and i < 200:
+            baris.append("  {0:>7}. {1}".format(i + 1, self.array.get(i).ringkas()))
+            i += 1
+        self._tulis_hasil("200 PESANAN PERTAMA\n" + "\n".join(baris))
+        self._catat("CUPLIKAN 200 PESANAN", "modul")
+
+    # -------------------------------------------------- aksi M3
+    def _data_laporan(self, jumlah=None):
+        """Snapshot pesanan dari Array menjadi list primitif untuk diolah."""
+        data = []
+        batas = self.array.size
+        if jumlah is not None and jumlah < batas:
+            batas = jumlah
+        i = 0
+        while i < batas:
+            data.append(self.array.get(i))
+            i += 1
+        return data
+
+    def _kunci_dipilih(self):
+        nama = self._nilai("kunci").strip().lower()
+        if nama == "":
+            nama = "harga"
+        return nama, (lambda pesanan: ambil_kunci(pesanan, nama))
+
+    def aksi_insertion_sort(self):
+        nama, kunci = self._kunci_dipilih()
+        jumlah = _bilangan(self._nilai("jumlah"), 10)
+        if jumlah < 1:
+            raise ValueError("jumlah minimal 1")
+        if jumlah > BATAS_INSERTION:
+            raise ValueError("insertion sort menolak {0} baris; maksimal {1} baris".format(
+                angka(jumlah), angka(BATAS_INSERTION)))
+        data = self._data_laporan(jumlah)
+        t0 = time.perf_counter()
+        banding, pindah = insertion_sort(data, kunci)
+        ms = (time.perf_counter() - t0) * 1000.0
+        self._tampil_sort("SORT - INSERTION SORT", data, nama, banding, pindah, ms)
+        self.label_array.configure(text="  Insertion sort  {0} banding, {1} pindah, {2} ms".format(
+            angka(banding), angka(pindah), angka(ms, 2)))
+        self._catat("INSERTION SORT {0} baris kunci {1} [{2} ms]".format(
+            angka(jumlah), nama, angka(ms, 2)), "perintah")
+        self._catat("  {0} perbandingan, {1} pemindahan".format(
+            angka(banding), angka(pindah)), "modul")
+
+    def aksi_merge_sort(self):
+        nama, kunci = self._kunci_dipilih()
+        jumlah = _bilangan(self._nilai("jumlah"), 4000)
+        if jumlah < 1:
+            raise ValueError("jumlah minimal 1")
+        if jumlah > self.array.size:
+            jumlah = self.array.size
+        data = self._data_laporan(jumlah)
+        t0 = time.perf_counter()
+        hasil, banding, pindah = merge_sort(data, kunci)
+        ms = (time.perf_counter() - t0) * 1000.0
+        self._tampil_sort("SORT - MERGE SORT", hasil, nama, banding, pindah, ms)
+        self.label_link.configure(text="  Merge sort  {0} banding, {1} pindah, {2} ms".format(
+            angka(banding), angka(pindah), angka(ms, 2)))
+        self._catat("MERGE SORT {0} baris kunci {1} [{2} ms]".format(
+            angka(jumlah), nama, angka(ms, 2)), "perintah")
+        self._catat("  {0} perbandingan, {1} pemindahan".format(
+            angka(banding), angka(pindah)), "modul")
+
+    def _tampil_sort(self, judul, data, nama, banding, pindah, ms):
+        baris = [
+            "kunci         : " + nama,
+            "jumlah baris  : " + angka(len(data)),
+            "perbandingan  : " + angka(banding),
+            "pemindahan    : " + angka(pindah),
+            "lama          : " + angka(ms, 2) + " ms",
+            "",
+            "10 baris pertama (terurut):",
+        ]
+        i = 0
+        while i < len(data) and i < 10:
+            baris.append("  {0:>3}. {1}".format(i + 1, data[i].ringkas()))
+            i += 1
+        self._tulis_hasil("\n".join(baris), judul)
+
+    def aksi_linear_search(self):
+        target = self._nilai("target").strip()
+        if not target:
+            raise ValueError("target kosong")
+        data = self._data_laporan()
+        t0 = time.perf_counter()
+        indeks, banding = linear_search(data, target, lambda pesanan: pesanan.oid)
+        ms = (time.perf_counter() - t0) * 1000.0
+        self._tampil_cari("SEARCH - LINEAR SEARCH", data, indeks, banding, ms)
+        self.label_array.configure(text="  Linear search  {0} banding, {1} ms".format(
+            angka(banding), angka(ms, 2)))
+        self._catat("LINEAR SEARCH {0} [{1} ms]".format(target, angka(ms, 2)), "perintah")
+        self._catat("  {0} perbandingan".format(angka(banding)), "modul")
+
+    def aksi_binary_search(self):
+        target = self._nilai("target").strip()
+        if not target:
+            raise ValueError("target kosong")
+        data = self._data_laporan()
+        t0 = time.perf_counter()
+        terurut, banding_sort, pindah_sort = merge_sort(data, lambda pesanan: pesanan.oid)
+        ms_sort = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        indeks, banding = binary_search(terurut, target, lambda pesanan: pesanan.oid)
+        ms_cari = (time.perf_counter() - t0) * 1000.0
+        baris = [
+            "membangun daftar terurut oid:",
+            "  {0} perbandingan, {1} pemindahan, {2} ms".format(
+                angka(banding_sort), angka(pindah_sort), angka(ms_sort, 2)),
+            "",
+            "pencarian biner:",
+            "  {0} perbandingan, {1} ms".format(angka(banding), angka(ms_cari, 2)),
+            "",
+        ]
+        if indeks < 0:
+            baris.append("tidak ditemukan")
+        else:
+            baris.append("ditemukan di indeks {0} (baris ke-{1})".format(
+                angka(indeks), angka(indeks + 1)))
+            baris.append("  " + terurut[indeks].ringkas())
+        self._tulis_hasil("\n".join(baris), "SEARCH - BINARY SEARCH")
+        self.label_link.configure(text="  Binary search  {0} banding, {1} ms".format(
+            angka(banding), angka(ms_cari, 2)))
+        self._catat("BINARY SEARCH {0} [{1} ms]".format(target, angka(ms_cari, 2)), "perintah")
+        self._catat("  urut {0} ms, cari {1} banding, {2} ms".format(
+            angka(ms_sort, 2), angka(banding), angka(ms_cari, 2)), "modul")
+
+    def _tampil_cari(self, judul, data, indeks, banding, ms):
+        baris = [
+            "perbandingan : " + angka(banding),
+            "lama         : " + angka(ms, 2) + " ms",
+            "",
+        ]
+        if indeks < 0:
+            baris.append("tidak ditemukan")
+        else:
+            baris.append("ditemukan di indeks {0} (baris ke-{1})".format(
+                angka(indeks), angka(indeks + 1)))
+            baris.append("  " + data[indeks].ringkas())
+        self._tulis_hasil("\n".join(baris), judul)
+
+    # -------------------------------------------------- tampilan
+    def _tulis_hasil(self, isi, judul=None):
+        self.teks_hasil.configure(state="normal")
+        self.teks_hasil.delete("1.0", "end")
+        if judul is not None:
+            self.teks_hasil.insert("end", judul + "\n", "kepala")
+        self.teks_hasil.insert("end", isi + "\n")
+        self.teks_hasil.configure(state="disabled")
 
     def _catat(self, teks, tag=None):
         self.teks_log.configure(state="normal")
@@ -1210,15 +986,12 @@ class Jendela:
 
     def _perbarui_status(self):
         self._ganti_status(
-            "M1: {0} pesanan (array kap {1}, linklist {2}) | M2: antrean naif {3} = melingkar {4} (kap {5}) | undo {6} redo {7}".format(
-                format_angka(self.antrean.array.size),
-                format_angka(self.antrean.array.kapasitas),
-                format_angka(self.antrean.link.size),
-                format_angka(self.m2.naif.size()),
-                format_angka(self.m2.melingkar.size()),
-                format_angka(self.m2.melingkar.kapasitas),
-                format_angka(self.m2.undo.size()),
-                format_angka(self.m2.redo.size())))
+            "M1: {0} pesanan (array kap {1}, linklist {2}) | M2: naif {3} = "
+            "melingkar {4} (kap {5}) | undo {6} redo {7}".format(
+                angka(self.array.size), angka(self.array.capacity),
+                angka(self.link.size), angka(self.naif.size()),
+                angka(self.melingkar.size()), angka(self.melingkar.capacity),
+                angka(self.undo.size()), angka(self.redo.size())))
 
 
 def _cari_menu(kode):
@@ -1230,5 +1003,4 @@ def _cari_menu(kode):
 
 
 def buka(jendela, path):
-    app = Jendela(jendela, path)
-    return app
+    return Jendela(jendela, path)

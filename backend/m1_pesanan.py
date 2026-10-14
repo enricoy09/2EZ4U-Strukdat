@@ -1,95 +1,69 @@
-"""M1 - dua struktur data: Array dan LinkList.
+"""M1 - Dua struktur data dasar: Array (larik) dan LinkedList (rantai).
 
-Array     : petak bersambung, alamat ke-i dihitung langsung.
-LinkList  : simpul bertaut dengan penunjuk head dan tail (Simpul = simpulnya).
-
-Keduanya melayani operasi yang sama:
-  get(i)              lihat nilai ke-i
-  tambah_reguler(v)   sisip di belakang
-  tambah_prioritas(v) sisip di tengah (size // 2)
-  tambah_vip(v)       sisip di depan
-  hapus(i)            cabut nilai ke-i
-
-Tiap struktur mencatat ongkos kerjanya (geseran Array, langkah LinkList) supaya
-bisa diadu.  File ini hanya berisi kelas struktur datanya.
+Hanya berisi kelas struktur datanya saja. Semua logika aplikasi ada di
+frontend/ui.py, yang membuat objeknya dan memanggil method di sini.
 """
 
 
 class Array:
-    def __init__(self, kapasitas_awal=4):
-        self.kapasitas = kapasitas_awal
-        self.size = 0
-        self.data = [None] * self.kapasitas
-        self.perluasan = 0
-        self.geseran = 0
-        self.salin = 0
+    """Larik dinamis. Menyimpan data dan mencatat jumlah geseran/penyalinan."""
 
-    def _resize(self):
-        baru = [None] * (self.kapasitas * 2)
-        for i in range(self.size):
-            baru[i] = self.data[i]
-        self.data = baru
-        self.kapasitas *= 2
-        self.perluasan += 1
-        self.salin += self.size
+    def __init__(self, capacity=4):
+        self.data = [None] * capacity
+        self.capacity = capacity
+        self.size = 0
+        self.shifts = 0
+        self.copies = 0
 
     def get(self, i):
         if 0 <= i < self.size:
             return self.data[i]
         return None
 
-    def tambah_reguler(self, v):
-        if self.size == self.kapasitas:
-            self._resize()
-        self.data[self.size] = v
+    def insert(self, i, v):
+        """Sisipkan v di posisi i. Elemen setelahnya bergeser ke kanan."""
+        if i < 0:
+            i = 0
+        if i > self.size:
+            i = self.size
+        if self.size == self.capacity:
+            self._grow()
+        j = self.size
+        while j > i:
+            self.data[j] = self.data[j - 1]
+            j -= 1
+            self.shifts += 1
+        self.data[i] = v
         self.size += 1
-        return self.size - 1
 
-    def tambah_vip(self, v):
-        if self.size == self.kapasitas:
-            self._resize()
-        for i in range(self.size, 0, -1):
-            self.data[i] = self.data[i - 1]
-        self.geseran += self.size
-        self.data[0] = v
-        self.size += 1
-        return 0
+    def remove(self, i):
+        """Ambil elemen ke-i. Elemen setelahnya bergeser ke kiri."""
+        if not (0 <= i < self.size):
+            return None
+        nilai = self.data[i]
+        j = i
+        while j < self.size - 1:
+            self.data[j] = self.data[j + 1]
+            j += 1
+            self.shifts += 1
+        self.data[self.size - 1] = None
+        self.size -= 1
+        return nilai
 
-    def tambah_prioritas(self, v):
-        if self.size == self.kapasitas:
-            self._resize()
-        tengah = self.size // 2
-        for i in range(self.size, tengah, -1):
-            self.data[i] = self.data[i - 1]
-        self.geseran += self.size - tengah
-        self.data[tengah] = v
-        self.size += 1
-        return tengah
-
-    def hapus(self, i):
-        if 0 <= i < self.size:
-            nilai = self.data[i]
-            for j in range(i, self.size - 1):
-                self.data[j] = self.data[j + 1]
-                self.geseran += 1
-            self.data[self.size - 1] = None
-            self.size -= 1
-            return nilai
-        return None
-
-    def stat(self):
-        rerata = 0.0
-        if self.size:
-            rerata = float(self.salin) / float(self.size)
-        return (("panjang", self.size),
-                ("kapasitas", self.kapasitas),
-                ("perluasan", self.perluasan),
-                ("geseran", self.geseran),
-                ("salin saat perluasan", self.salin),
-                ("salin per elemen", round(rerata, 3)))
+    def _grow(self):
+        baru = [None] * (self.capacity * 2)
+        i = 0
+        while i < self.size:
+            baru[i] = self.data[i]
+            i += 1
+        self.data = baru
+        self.capacity *= 2
+        self.copies += self.size
 
 
-class Simpul:
+class Node:
+    """Satu simpul rantai: menyimpan data dan alamat simpul berikutnya."""
+
     __slots__ = ("data", "next")
 
     def __init__(self, data, next=None):
@@ -97,84 +71,57 @@ class Simpul:
         self.next = next
 
 
-class LinkList:
+class LinkedList:
+    """Rantai simpul. Menyimpan head/tail dan mencatat jumlah telusuran."""
+
     def __init__(self):
         self.head = None
         self.tail = None
         self.size = 0
-        self.langkah = 0
+        self.traversals = 0
 
     def get(self, i):
-        if i < 0 or i >= self.size:
+        if not (0 <= i < self.size):
             return None
-        s = self.head
-        for _ in range(i):
-            s = s.next
-            self.langkah += 1
-        return s.data
+        return self._node_at(i).data
 
-    def tambah_reguler(self, v):
-        baru = Simpul(v)
-        if self.tail is None:
-            self.head = baru
-            self.tail = baru
+    def insert(self, i, v):
+        """Sisipkan v di posisi i. Di ujung cukup mengubah petunjuk."""
+        if i <= 0:
+            self.head = Node(v, self.head)
+            if self.tail is None:
+                self.tail = self.head
+        elif i >= self.size:
+            self.tail.next = Node(v)
+            self.tail = self.tail.next
         else:
-            self.tail.next = baru
-            self.tail = baru
+            sebelum = self._node_at(i - 1)
+            sebelum.next = Node(v, sebelum.next)
         self.size += 1
-        return self.size - 1
 
-    def tambah_vip(self, v):
-        baru = Simpul(v, self.head)
-        self.head = baru
-        if self.tail is None:
-            self.tail = baru
-        self.size += 1
-        return 0
-
-    def tambah_prioritas(self, v):
-        tengah = self.size // 2
-        baru = Simpul(v)
-        if self.size == 0:
-            self.head = baru
-            self.tail = baru
-        elif tengah == 0:
-            baru.next = self.head
-            self.head = baru
-        else:
-            sblm = self._sebelum(tengah)
-            baru.next = sblm.next
-            sblm.next = baru
-            if baru.next is None:
-                self.tail = baru
-        self.size += 1
-        return tengah
-
-    def hapus(self, i):
-        if i < 0 or i >= self.size:
+    def remove(self, i):
+        """Ambil elemen ke-i. Rantai disambung ulang melewatinya."""
+        if not (0 <= i < self.size):
             return None
         if i == 0:
-            dicabut = self.head
-            self.head = dicabut.next
-            self.langkah += 1
-            if self.size == 1:
+            node = self.head
+            self.head = node.next
+            if self.head is None:
                 self.tail = None
         else:
-            sblm = self._sebelum(i)
-            dicabut = sblm.next
-            sblm.next = dicabut.next
-            if dicabut is self.tail:
-                self.tail = sblm
+            sebelum = self._node_at(i - 1)
+            node = sebelum.next
+            sebelum.next = node.next
+            if node is self.tail:
+                self.tail = sebelum
         self.size -= 1
-        return dicabut.data
+        return node.data
 
-    def stat(self):
-        return (("panjang", self.size),
-                ("simpul ditelusuri", self.langkah))
-
-    def _sebelum(self, i):
-        s = self.head
-        for _ in range(i - 1):
-            s = s.next
-            self.langkah += 1
-        return s
+    def _node_at(self, i):
+        node = self.head
+        k = 0
+        while k < i:
+            node = node.next
+            k += 1
+            self.traversals += 1
+        return node
